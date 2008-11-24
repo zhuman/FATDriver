@@ -131,6 +131,7 @@ Int16 MountDevice(PartInternal* device)
 	vol->Partition = device;
 	vol->BPB_ResvdSecCnt = bootSector->BPB_RsvdSecCnt;
 	vol->BPB_BytsPerSec = bootSector->BPB_BytsPerSec;
+	vol->SecsPerClus = bootSector->BPB_SecsPerClus;
 	
 	puts("Calling CalcFATSize...\r\n");
 	CalcFATSize(vol,bootSector);

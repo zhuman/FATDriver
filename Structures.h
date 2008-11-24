@@ -85,13 +85,80 @@ typedef struct
 	UInt16 FirstDataSector;
 	UInt16 BPB_ResvdSecCnt;
 	UInt16 BPB_BytsPerSec;
+	UInt16 SecsPerClus;
 	
 	UInt8* FATBuffer;
 	UInt32 FATBufferSector;
+	Bool FATBufferDirty;
 	
 	UInt32 FreeClusters;
 	UInt32 NextFreeCluster;
 	
 } FATVolume;
+
+// Records a time for a file
+typedef struct
+{
+	__attribute__ ((packed)) UInt8 Seconds	: 5; // 0-29 (double to get the real second count)
+	__attribute__ ((packed)) UInt8 Minutes	: 6; // 0-59
+	__attribute__ ((packed)) UInt8 Hours	: 5; // 0-23
+} FATTimeStamp;
+
+// Records a date for a file
+typedef struct
+{
+	__attribute__ ((packed)) UInt8 Day		: 5; // 1-31
+	__attribute__ ((packed)) UInt8 Month	: 4; // 1-12
+	__attribute__ ((packed)) UInt8 Year		: 7; // 0-127 (years since 1980)
+} FATDateStamp;
+
+// Stores file attributes
+typedef enum
+{
+	ATTR_READ_ONLY	= 0x1,
+	ATTR_HIDDEN		= 0x2,
+	ATTR_SYSTEM		= 0x4,
+	ATTR_VOLUME_ID	= 0x8,
+	ATTR_DIRECTORY	= 0x10,
+	ATTR_ARCHIVE	= 0x20,
+	ATTR_LONG_NAME	= ATTR_READ_ONLY | ATTR_HIDDEN | ATTR_SYSTEM | ATTR_VOLUME_ID
+} FileAttrs;
+
+// Stores a directory entry
+typedef struct
+{
+	__attribute__ ((packed)) UInt8 Name[11];
+	__attribute__ ((packed)) UInt8 Attr;
+	__attribute__ ((packed)) UInt8 NTRes;
+	__attribute__ ((packed)) UInt8 CrtTimeTenth;
+	__attribute__ ((packed)) UInt16 CrtTime;
+	__attribute__ ((packed)) UInt16 CrtDate;
+	__attribute__ ((packed)) UInt16 LstAccDate;
+	__attribute__ ((packed)) UInt16 FstClustHI;
+	__attribute__ ((packed)) UInt16 WriteTime;
+	__attribute__ ((packed)) UInt16 WriteDate;
+	__attribute__ ((packed)) UInt16 FstClustLO;
+	__attribute__ ((packed)) UInt32 FileSize;
+} DirEntry;
+
+// Stores a long name directory entry
+typedef struct
+{
+	__attribute__ ((packed)) UInt8 Ord;
+	__attribute__ ((packed)) UInt8 Name1[10];
+	__attribute__ ((packed)) UInt8 Attr; // Must be ATTR_LONG_NAME
+	__attribute__ ((packed)) UInt8 Type; // 0 for long name subcomponent
+	__attribute__ ((packed)) UInt8 Chksum;
+	__attribute__ ((packed)) UInt8 Name2[12];
+	__attribute__ ((packed)) UInt16 FstClustLO; // Must be 0
+	__attribute__ ((packed)) UInt8 Name3[3];
+} LongDirEntry;
+
+typedef struct
+{
+	FATVolume* Volume;
+	char* Path;
+	DirEntry Entry;
+} FATFile;
 
 #endif

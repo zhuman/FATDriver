@@ -3,9 +3,39 @@
 #include "..\Z-OS\Devices\FileSystems.h"
 #include "Structures.h"
 
+FATFile* FindFile(FATVolume* vol, char* path)
+{
+	FATFile* file = zmalloc(sizeof(FATFile));
+	int i;
+	int pathLen = strlen(path);
+	if (!file) return null;
+	if (pathLen == 1 && path[0] == '\\')
+	{
+		if (vol->Type == FAT32)
+		{
+			//vol->
+			//vol->FirstDataSector - vol->RootDirSectors
+		}	
+	}
+	else
+	{	
+		for (i = pathLen - 1; i > 0; i--)
+		{
+			if (path[i] == '\\')
+			{
+				
+			}
+		}
+	}
+}
+
 Bool FileExists(PartInternal* device, char* path)
 {
-	return ErrorUnimplemented;
+	if (device->FileSystem && device->Data1)
+	{
+		FATVolume* vol = device->Data1;
+		
+	}
 }
 
 // Gets a file's (or dir's) attributes

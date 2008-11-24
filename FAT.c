@@ -3,6 +3,26 @@
 #include "..\Z-OS\Devices\FileSystems.h"
 #include "Structures.h"
 
+UInt32 GetEndOfCluster(FATVolume* vol)
+{
+	switch (vol->Type)
+	{
+		case FAT32: return 0x0FFFFFF8;
+		case FAT16: return 0xFFF8;
+		case FAT12: return 0x0FF8;
+	}
+}
+
+UInt32 ClusterNumToSector(FATVolume* vol, UInt32 clus)
+{
+	return ((clus - 2) * vol->SecsPerClus) + vol->FirstDataSector;
+}
+
+UInt32 ClusterNumToByte(FATVolume* vol, UInt32 clus)
+{
+	return (((clus - 2) * vol->SecsPerClus) + vol->FirstDataSector) * vol->BPB_BytsPerSec;
+}
+
 Int16 ClusterNumToFATIndex(FATVolume* vol, UInt32 cluster, UInt16* offset, UInt16* sectorOffset, UInt32* sector)
 {
 	UInt32 FATOffset;
@@ -46,7 +66,7 @@ Int16 GetFATEntry(FATVolume* vol, UInt32 index, UInt32* entry)
 	switch (vol->Type)
 	{
 		case FAT12:
-			if (offset & 0x001)
+			if (offset & 1)
 				*entry = (UInt32)(*((UInt16*)&(vol->FATBuffer[sectorOffset])) >> 4); // Odd cluster
 			else
 				*entry = (UInt32)(*((UInt16*)&(vol->FATBuffer[sectorOffset])) & 0x0FFF); // Even cluster
@@ -58,6 +78,56 @@ Int16 GetFATEntry(FATVolume* vol, UInt32 index, UInt32* entry)
 			*entry = *((UInt32*)&(vol->FATBuffer[sectorOffset])) & 0x0FFFFFFF;
 		break;
 	}
+	
+	return ErrorSuccess;
+}
+
+Int16 SetFATEntry(FATVolume* vol, UInt32 index, UInt32 entry)
+{
+	Int16 ret;
+	UInt16 offset, sectorOffset;
+	UInt32 sector;
+	if ((ret = ClusterNumToFATIndex(vol,index,&offset,&sectorOffset,&sector))) return ret;
+	
+	// Load the buffer if needed
+	if (vol->FATBufferSector != sector)
+	{
+		if (vol->FATBufferDirty)
+		{
+			ret = InternalWritePart(vol->Partition,vol->FATBufferSector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec) : (vol->BPB_BytsPerSec << 1));
+			if (ret) return ret;
+		}
+		ret = InternalReadPart(vol->Partition,sector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec) : (vol->BPB_BytsPerSec << 1));
+		if (ret) return ret;
+	}
+	
+	// Find and return the entry
+	switch (vol->Type)
+	{
+		case FAT12:
+			if (offset & 1)
+			{
+			    entry = entry << 4; // Odd cluster
+			    *((UInt16*) &(vol->FATBuffer[sectorOffset])) = 
+			        (*((UInt16*) &(vol->FATBuffer[sectorOffset]))) & 0x000F;
+			}
+			else
+			{
+			    entry = entry & 0x0FFF; // Even Cluster
+			    *((UInt16*) &(vol->FATBuffer[sectorOffset])) = 
+			        (*((UInt16*) &(vol->FATBuffer[sectorOffset]))) & 0xF000;
+			}
+			*((UInt16*) &(vol->FATBuffer[sectorOffset])) = 
+			    (*((UInt16*) &(vol->FATBuffer[sectorOffset]))) | entry;
+		break;
+		case FAT16:
+			*((UInt16*)&(vol->FATBuffer[sectorOffset])) = entry;
+		break;
+		case FAT32:
+			*((UInt32*)&(vol->FATBuffer[sectorOffset])) &= entry | 0xF0000000;
+		break;
+	}
+	vol->FATBufferDirty = true;
 	
 	return ErrorSuccess;
 }
