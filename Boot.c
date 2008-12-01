@@ -13,17 +13,17 @@ void InitFAT(void)
 	info.HasSecurity = False;
 	info.IsCaseSensitive = False;
 	
-	funcs.Detect = DetectFS;
-	funcs.MountDevice = MountDevice;
-	funcs.UnmountDevice = UnmountDevice;
-	funcs.FileExists = FileExists;
-	funcs.GetFile = GetFile;
-	funcs.OpenFile = OpenFile;
-	funcs.SetFile = SetFile;
-	funcs.DeleteFile = DeleteFile;
-	funcs.RenameFile = RenameFile;
-	funcs.ReadFile = ReadFile;
-	funcs.WriteFile = WriteFile;
+	funcs.Detect = FAT_DetectFS;
+	funcs.MountDevice = FAT_MountDevice;
+	funcs.UnmountDevice = FAT_UnmountDevice;
+	funcs.FileExists = FAT_FileExists;
+	funcs.GetFile = FAT_GetFile;
+	funcs.OpenFile = FAT_OpenFile;
+	funcs.SetFile = FAT_SetFile;
+	funcs.DeleteFile = FAT_DeleteFile;
+	funcs.RenameFile = FAT_RenameFile;
+	funcs.ReadFile = FAT_ReadFile;
+	funcs.WriteFile = FAT_WriteFile;
 	
 	RegisterFileSystem(info,funcs);
 	

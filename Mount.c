@@ -3,11 +3,9 @@
 #include "..\Z-OS\Devices\FileSystems.h"
 #include "Structures.h"
 #include "Public.h"
+#include "FAT.h"
 
-Int16 LoadFAT(FATVolume* vol);
-Int16 CalcFreeClusters(FATVolume* vol, BootSector* bootSector);
-
-Bool DetectFS(PartInternal* device)
+Bool FAT_DetectFS(PartInternal* device)
 {
 	BootSector* bootSector = zmalloc(sizeof(BootSector));
 	Int16 ret = False;
@@ -58,17 +56,11 @@ Bool DetectFS(PartInternal* device)
 	return ret;
 }
 
-extern void CloseVirtualFile(void);
+//extern void CloseVirtualFile(void);
 
 // Calculates the type of FAT (12/16/32)
-static void CalcFATType(FATVolume* vol, BootSector*  bootSector)
+static void FAT_CalcFATType(FATVolume* vol, BootSector*  bootSector)
 {
-	if (bootSector->BPB_FATSz16 != 0) vol->FATSize = bootSector->BPB_FATSz16;
-	else vol->FATSize = bootSector->FAT32.BPB_FATSz32;
-	
-	if (bootSector->BPB_TotSec16 != 0) vol->TotSec = bootSector->BPB_TotSec16;
-	else vol->TotSec = bootSector->BPB_TotSec32;
-	
 	vol->DataSec = vol->TotSec - (bootSector->BPB_RsvdSecCnt + (bootSector->BPB_NumFATs * vol->FATSize) + vol->RootDirSectors);
 	
 	vol->CountOfClusters = (UInt32)(vol->DataSec) / (UInt32)(bootSector->BPB_SecsPerClus);
@@ -78,19 +70,16 @@ static void CalcFATType(FATVolume* vol, BootSector*  bootSector)
 	else vol->Type = FAT32;
 }
 
-static void CalcFATSize(FATVolume* vol, BootSector* bootSector)
+static void FAT_CalcFATSize(FATVolume* vol, BootSector* bootSector)
 {
 	// Round the division up
 	div_t RootDirSectorsDiv = div(((bootSector->BPB_RootEntCnt * 32) + (bootSector->BPB_BytsPerSec - 1)), bootSector->BPB_BytsPerSec);
 	vol->RootDirSectors = RootDirSectorsDiv.quot + (RootDirSectorsDiv.rem ? 1 : 0);
 	
-	if (bootSector->BPB_FATSz16 != 0) vol->FATSize = bootSector->BPB_FATSz16;
-	else vol->FATSize = bootSector->FAT32.BPB_FATSz32;
-	
 	vol->FirstDataSector = bootSector->BPB_RsvdSecCnt + (bootSector->BPB_NumFATs * vol->FATSize) + vol->RootDirSectors;
 }
 
-static void DebugMount(FATVolume* vol, BootSector* bootSector)
+static void FAT_DebugMount(FATVolume* vol, BootSector* bootSector)
 {
 	char OEMName[9] = {0};
 	char VolLabel[12] = {0};
@@ -107,17 +96,37 @@ static void DebugMount(FATVolume* vol, BootSector* bootSector)
 		case FAT16: puts("FAT16 volume\r\n"); break;
 		case FAT32: puts("FAT32 volume\r\n"); break;
 	}
-	
-	printf("OEM Name: %s Volume Label: %s\r\n",OEMName,VolLabel);
+	printf("Sector Size: %d bytes\r\n",bootSector->BPB_BytsPerSec);
+	if (bootSector->BPB_TotSec32)
+	{
+		printf("TotalSectors: %ld\r\n",bootSector->BPB_TotSec32);
+	}
+	else
+	{
+		printf("TotalSectors: %d\r\n",bootSector->BPB_TotSec16);
+	}
+	printf("ClusterCount: %lu\r\n",vol->CountOfClusters);
+	printf("Data Sectors: %lu\r\n",vol->DataSec);
+	if (vol->Type == FAT32)
+	{
+		printf("RootDirFirstClus: %lu\r\n",vol->RootDirFirstClus);
+	}
+	else
+	{
+		printf("RootDirSectors: %u\r\n",vol->RootDirSectors);
+	}
+	printf("FirstDataSector: %u\r\n",vol->FirstDataSector);
+	printf("Sectors per Cluster: %d\r\n",bootSector->BPB_SecsPerClus);
+	printf("OEM Name: %s\r\nVolume Label: %s\r\n",OEMName,VolLabel);
 }
 
-Int16 MountDevice(PartInternal* device)
+Int16 FAT_MountDevice(PartInternal* device)
 {
 	BootSector* bootSector;
 	FATVolume* vol;
 	Int16 ret;
 	
-	if (!(bootSector = zmalloc(sizeof(FATVolume)))) return ErrorOutOfMemory;
+	if (!(bootSector = zmalloc(sizeof(BootSector)))) return ErrorOutOfMemory;
 	if (!(vol = zmalloc(sizeof(FATVolume))))
 	{
 		zfree(bootSector);
@@ -131,31 +140,43 @@ Int16 MountDevice(PartInternal* device)
 	vol->Partition = device;
 	vol->BPB_ResvdSecCnt = bootSector->BPB_RsvdSecCnt;
 	vol->BPB_BytsPerSec = bootSector->BPB_BytsPerSec;
+	vol->BPB_RootEntCnt = bootSector->BPB_RootEntCnt;
 	vol->SecsPerClus = bootSector->BPB_SecsPerClus;
 	
-	puts("Calling CalcFATSize...\r\n");
-	CalcFATSize(vol,bootSector);
-	puts("Calling CalcFATType...\r\n");
-	CalcFATType(vol,bootSector);
+	if (bootSector->BPB_FATSz16) vol->FATSize = bootSector->BPB_FATSz16;
+	else vol->FATSize = bootSector->FAT32.BPB_FATSz32;
 	
+	if (bootSector->BPB_TotSec16) vol->TotSec = bootSector->BPB_TotSec16;
+	else vol->TotSec = bootSector->BPB_TotSec32;
+	
+	// Calculate some required statistics about the volume
+	puts("Calling CalcFATSize...\r\n");
+	FAT_CalcFATSize(vol,bootSector);
+	
+	// Calculate the volume type and some more statistics
+	puts("Calling CalcFATType...\r\n");
+	FAT_CalcFATType(vol,bootSector);
+	
+	// Create a FAT buffer and prepare for reading
+	puts("Calling LoadFAT...\r\n");
+	ret = FAT_LoadFAT(vol);
+	
+	// TODO: Create a free cluster list:
+	//puts("Calling CalcFreeClusters...\r\n");
+	//ret = FAT_CalcFreeClusters(vol,bootSector);
+	
+	// Print some useful information
+	puts("Calling DebugMount...\r\n");
+	FAT_DebugMount(vol,bootSector);
+	
+	device->Data1 = vol;
 	zfree(bootSector);
 	
-	puts("Calling LoadFAT...\r\n");
-	ret = LoadFAT(vol);
-	puts("Calling CalcFreeClusters...\r\n");
-	ret = CalcFreeClusters(vol,bootSector);
-	
-	//puts("Calling DebugMount...\r\n");
-	//DebugMount(vol,bootSector);
-	
 	puts("Finished mounting volume.\r\n");
-	for(;;);
-	
-	//zfree(bootSector);
-	return ErrorUnimplemented;
+	return ret;
 }
 
-Int16 UnmountDevice(PartInternal* device, Bool suprise)
+Int16 FAT_UnmountDevice(PartInternal* device, Bool suprise)
 {
 	return ErrorUnimplemented;
 }

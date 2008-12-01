@@ -77,15 +77,20 @@ typedef struct
 	
 	PartInternal* Partition;
 	
+	// Some useful statistics
 	UInt32 FATSize;
 	UInt32 TotSec;
 	UInt32 DataSec;
 	UInt32 CountOfClusters;
-	UInt16 RootDirSectors;
 	UInt16 FirstDataSector;
 	UInt16 BPB_ResvdSecCnt;
 	UInt16 BPB_BytsPerSec;
+	UInt16 BPB_RootEntCnt;
 	UInt16 SecsPerClus;
+	
+	// The root directory
+	UInt16 RootDirSectors; // FAT12/16
+	UInt32 RootDirFirstClus; // FAT32
 	
 	UInt8* FATBuffer;
 	UInt32 FATBufferSector;

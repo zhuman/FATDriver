@@ -3,27 +3,27 @@
 #include "..\Z-OS\Devices\FileSystems.h"
 #include "Structures.h"
 
-UInt32 GetEndOfCluster(FATVolume* vol)
+UInt32 FAT_GetEndOfCluster(FATVolume* vol)
 {
 	switch (vol->Type)
 	{
 		case FAT32: return 0x0FFFFFF8;
 		case FAT16: return 0xFFF8;
-		case FAT12: return 0x0FF8;
+		case FAT12: default: return 0x0FF8;
 	}
 }
 
-UInt32 ClusterNumToSector(FATVolume* vol, UInt32 clus)
+UInt32 FAT_ClusterNumToSector(FATVolume* vol, UInt32 clus)
 {
 	return ((clus - 2) * vol->SecsPerClus) + vol->FirstDataSector;
 }
 
-UInt32 ClusterNumToByte(FATVolume* vol, UInt32 clus)
+UInt32 FAT_ClusterNumToByte(FATVolume* vol, UInt32 clus)
 {
 	return (((clus - 2) * vol->SecsPerClus) + vol->FirstDataSector) * vol->BPB_BytsPerSec;
 }
 
-Int16 ClusterNumToFATIndex(FATVolume* vol, UInt32 cluster, UInt16* offset, UInt16* sectorOffset, UInt32* sector)
+Int16 FAT_ClusterNumToFATIndex(FATVolume* vol, UInt32 cluster, UInt16* offset, UInt16* sectorOffset, UInt32* sector)
 {
 	UInt32 FATOffset;
 	if (cluster > vol->CountOfClusters) return ErrorInvalidCluster;
@@ -48,17 +48,17 @@ Int16 ClusterNumToFATIndex(FATVolume* vol, UInt32 cluster, UInt16* offset, UInt1
 	return ErrorSuccess;
 }
 
-Int16 GetFATEntry(FATVolume* vol, UInt32 index, UInt32* entry)
+Int16 FAT_GetFATEntry(FATVolume* vol, UInt32 index, UInt32* entry)
 {
 	Int16 ret;
 	UInt16 offset, sectorOffset;
 	UInt32 sector;
-	if ((ret = ClusterNumToFATIndex(vol,index,&offset,&sectorOffset,&sector))) return ret;
+	if ((ret = FAT_ClusterNumToFATIndex(vol,index,&offset,&sectorOffset,&sector))) return ret;
 	
 	// Load the buffer if needed
 	if (vol->FATBufferSector != sector)
 	{
-		ret = InternalReadPart(vol->Partition,sector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec) : (vol->BPB_BytsPerSec << 1));
+		ret = InternalReadPart(vol->Partition,sector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec * 2) : (vol->BPB_BytsPerSec));
 		if (ret) return ret;
 	}
 	
@@ -82,22 +82,22 @@ Int16 GetFATEntry(FATVolume* vol, UInt32 index, UInt32* entry)
 	return ErrorSuccess;
 }
 
-Int16 SetFATEntry(FATVolume* vol, UInt32 index, UInt32 entry)
+Int16 FAT_SetFATEntry(FATVolume* vol, UInt32 index, UInt32 entry)
 {
 	Int16 ret;
 	UInt16 offset, sectorOffset;
 	UInt32 sector;
-	if ((ret = ClusterNumToFATIndex(vol,index,&offset,&sectorOffset,&sector))) return ret;
+	if ((ret = FAT_ClusterNumToFATIndex(vol,index,&offset,&sectorOffset,&sector))) return ret;
 	
 	// Load the buffer if needed
 	if (vol->FATBufferSector != sector)
 	{
 		if (vol->FATBufferDirty)
 		{
-			ret = InternalWritePart(vol->Partition,vol->FATBufferSector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec) : (vol->BPB_BytsPerSec << 1));
+			ret = InternalWritePart(vol->Partition,vol->FATBufferSector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec * 2) : (vol->BPB_BytsPerSec));
 			if (ret) return ret;
 		}
-		ret = InternalReadPart(vol->Partition,sector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec) : (vol->BPB_BytsPerSec << 1));
+		ret = InternalReadPart(vol->Partition,sector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec * 2) : (vol->BPB_BytsPerSec));
 		if (ret) return ret;
 	}
 	
@@ -132,21 +132,20 @@ Int16 SetFATEntry(FATVolume* vol, UInt32 index, UInt32 entry)
 	return ErrorSuccess;
 }
 
-Int16 LoadFAT(FATVolume* vol)
+Int16 FAT_LoadFAT(FATVolume* vol)
 {
 	Int16 ret;
 	UInt32 entry;
 	
 	// Init the FAT buffer to hold one FAT sector, or two for FAT12 volumes
-	printf("Allocating %d bytes...\r\n",(vol->Type == FAT12) ? (vol->BPB_BytsPerSec << 1) : vol->BPB_BytsPerSec);
-	vol->FATBuffer = zmalloc((vol->Type == FAT12) ? (vol->BPB_BytsPerSec << 1) : vol->BPB_BytsPerSec);
+	vol->FATBuffer = zmalloc((vol->Type == FAT12) ? (vol->BPB_BytsPerSec * 2) : vol->BPB_BytsPerSec);
 	if (!(vol->FATBuffer)) return ErrorOutOfMemory;
 	
 	// Force the FAT buffer to load on the first call
 	vol->FATBufferSector = 0xFFFFFFFF;
 	
 	// Check for volume problems
-	if ((ret = GetFATEntry(vol,0,&entry))) return ret;
+	if ((ret = FAT_GetFATEntry(vol,0,&entry))) return ret;
 	if (vol->Type == FAT16)
 	{
 		if (!(entry & 0x8000)) puts("The volume was not unmounted properly on last use.\r\n");
@@ -161,14 +160,14 @@ Int16 LoadFAT(FATVolume* vol)
 	return ErrorSuccess;
 }
 
-Int16 ScanFirstFree(FATVolume* vol)
+Int16 FAT_ScanFirstFree(FATVolume* vol)
 {
 	UInt32 i;
 	Int16 ret;
 	for (i = 2; i < vol->CountOfClusters; i++)
 	{
 		UInt32 entry;
-		ret = GetFATEntry(vol,i,&entry);
+		ret = FAT_GetFATEntry(vol,i,&entry);
 		if (ret) return ret;
 		if (!entry)
 		{
@@ -180,11 +179,11 @@ Int16 ScanFirstFree(FATVolume* vol)
 	return ErrorSuccess;
 }
 
-Int16 ScanFreeClusters(FATVolume* vol)
+Int16 FAT_ScanFreeClusters(FATVolume* vol)
 {
 	Int16 ret;
 	
-	if ((ret = ScanFirstFree(vol))) return ret;
+	if ((ret = FAT_ScanFirstFree(vol))) return ret;
 	if (vol->NextFreeCluster < vol->CountOfClusters)
 	{
 		UInt32 count = 0;
@@ -192,7 +191,7 @@ Int16 ScanFreeClusters(FATVolume* vol)
 		for (i = vol->NextFreeCluster; i < vol->CountOfClusters; i++)
 		{
 			UInt32 entry;
-			if ((ret = GetFATEntry(vol,i,&entry))) return ret;
+			if ((ret = FAT_GetFATEntry(vol,i,&entry))) return ret;
 			if (!entry) count++;
 		}
 		vol->FreeClusters = count;
@@ -204,7 +203,7 @@ Int16 ScanFreeClusters(FATVolume* vol)
 	return ErrorSuccess;
 }
 
-Int16 CalcFreeClusters(FATVolume* vol, BootSector* bootSector)
+Int16 FAT_CalcFreeClusters(FATVolume* vol, BootSector* bootSector)
 {
 	Int16 ret = ErrorSuccess;
 	
@@ -237,13 +236,13 @@ Int16 CalcFreeClusters(FATVolume* vol, BootSector* bootSector)
 				}
 				else
 				{
-					ret = ScanFirstFree(vol);
+					ret = FAT_ScanFirstFree(vol);
 				}
 				zfree(info);
 				return ret;
 			}
 		}
 	}
-	ret = ScanFreeClusters(vol);
+	ret = FAT_ScanFreeClusters(vol);
 	return ret;
 }
