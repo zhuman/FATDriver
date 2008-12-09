@@ -6,11 +6,12 @@
 
 Int16 FAT_ClusterChainIO(FATVolume* vol, Bool read, UInt32 firstCluster, UInt32 pos, UInt8* buffer, UInt32 bufLen, UInt32* bytesRemaining)
 {
+	Int16 ret;
 	UInt32 bytsPerClus = vol->SecsPerClus * vol->BPB_BytsPerSec;
 	// Divide by 512 (the number of bytes in a sector)
-	UInt32 clusterBegin = (pos / (vol->SecsPerClus * vol->BPB_BytsPerSec)) + firstCluster;
-	UInt32 i = clusterBegin;
-	Int16 ret;
+	UInt32 clusterBegin = (pos / (vol->SecsPerClus * vol->BPB_BytsPerSec));
+	pos -= clusterBegin * vol->SecsPerClus * vol->BPB_BytsPerSec;
+	UInt32 i;
 	
 	// If firstCluster == 0, the chain is empty
 	if (!firstCluster)
@@ -19,12 +20,25 @@ Int16 FAT_ClusterChainIO(FATVolume* vol, Bool read, UInt32 firstCluster, UInt32 
 		return ErrorSuccess;
 	}
 	
-	pos -= (clusterBegin - firstCluster) * vol->SecsPerClus * vol->BPB_BytsPerSec;
+	// Find the first cluster to read from
+	while (clusterBegin)
+	{
+		UInt32 entry;
+		if ((ret = FAT_GetFATEntry(vol,firstCluster,&entry))) return ret;
+		if (entry == FAT_GetEndOfCluster(vol))
+		{
+			if (bytesRemaining) *bytesRemaining = bufLen;
+			return ErrorSuccess;
+		}
+		firstCluster = entry;
+		clusterBegin--;
+	}
+	
+	i = firstCluster;
 	
 	while (1)
 	{
 		UInt16 bytesToCopy;
-		UInt32 entry;
 		
 		bytesToCopy = Min(bytsPerClus - pos,bufLen);
 		printf("bytesToCopy: %u\r\n",bytesToCopy);
@@ -39,10 +53,9 @@ Int16 FAT_ClusterChainIO(FATVolume* vol, Bool read, UInt32 firstCluster, UInt32 
 		if (bufLen == 0) break;
 		
 		// Move to the next buffer
-		ret = FAT_GetFATEntry(vol,i,&entry);
+		ret = FAT_GetFATEntry(vol,i,&i);
 		if (ret) return ret;
-		if (entry == FAT_GetEndOfCluster(vol)) break;
-		i = entry;
+		if (i == FAT_GetEndOfCluster(vol)) break;
 		
 		buffer += bytesToCopy;
 		pos = 0;

@@ -15,12 +15,12 @@ UInt32 FAT_GetEndOfCluster(FATVolume* vol)
 
 UInt32 FAT_ClusterNumToSector(FATVolume* vol, UInt32 clus)
 {
-	return ((clus - 2) * vol->SecsPerClus) + vol->FirstDataSector;
+	return ((clus - 2) * vol->SecsPerClus) + vol->FirstDataSector - 1;
 }
 
 UInt32 FAT_ClusterNumToByte(FATVolume* vol, UInt32 clus)
 {
-	return (((clus - 2) * vol->SecsPerClus) + vol->FirstDataSector) * vol->BPB_BytsPerSec;
+	return (((clus - 2) * vol->SecsPerClus) + vol->FirstDataSector - 1) * vol->BPB_BytsPerSec;
 }
 
 Int16 FAT_ClusterNumToFATIndex(FATVolume* vol, UInt32 cluster, UInt16* offset, UInt16* sectorOffset, UInt32* sector)
