@@ -43,6 +43,7 @@ Int16 MapShortName(const unsigned char* shortName, unsigned char* entryArray)
 		if (shortName[i] == '.')
 		{
 			if (i > 7) return ErrorInvalidFileName;
+			puts("Reached period.\r\n");
 			j = 8 - 1;
 			continue;
 		}
@@ -55,8 +56,6 @@ Int16 MapShortName(const unsigned char* shortName, unsigned char* entryArray)
 	return ErrorSuccess;
 }
 
-// Parses and traces a file path through each directory to the requested entry
-// Returns null on any error or if the file cannot be found
 FATFile* FAT_FindFile(FATVolume* vol, char* path, UInt16 pathLen)
 {
 	FATFile* file = zmalloc(sizeof(FATFile));
@@ -81,30 +80,30 @@ FATFile* FAT_FindFile(FATVolume* vol, char* path, UInt16 pathLen)
 	{
 		file->Entry.FstClustLO = 0;
 		file->Entry.FstClustHI = 0;
+		//file->Entry.FileSize = vol->BPB_BytsPerSec * vol->RootDirSectors;
 		file->Entry.FileSize = vol->BPB_RootEntCnt * sizeof(DirEntry);
 	}
 	
 	for (i = 0; i < pathLen; i++)
 	{
+		printf("Current char: %c\r\n",path[i]);
 		if ((path[i] == '\\') || (i == pathLen - 1))
 		{
 			if (i == pathLen - 1) segmentLength++;
 			puts("Segment started.\r\n");
 			if (segmentLength > 12)
 			{
-				puts("Bad file/folder name.\r\n");
 				zfree(file);
 				return null;
 			}
 			else if (segmentLength)
 			{
-				UInt32 j = 0; UInt16 k = 0;
-				UInt32 firstCluster = (UInt32)(file->Entry.FstClustLO) | (((UInt32)(file->Entry.FstClustHI)) << 16);
+				UInt16 j = 0; UInt16 k = 0;
+				UInt32 firstCluster = (UInt32)(file->Entry.FstClustLO) & (((UInt32)(file->Entry.FstClustHI)) << 16);
 				UInt32 entryCount = file->Entry.FileSize / sizeof(DirEntry);
 				char* segmentShort = zmalloc(11);
 				char* segmentOrig = zmalloc(13);
 				
-				// ErrorOutOfMemory check
 				if (!segmentShort || !segmentOrig)
 				{
 					if (segmentShort) zfree(segmentShort);
@@ -113,7 +112,9 @@ FATFile* FAT_FindFile(FATVolume* vol, char* path, UInt16 pathLen)
 					return null;
 				}
 				
-				// Convert the path segment into the 11-byte format used for directory entries
+				puts("Mapping segment to short name...\r\n");
+				
+				// Convert the path segment into the format used for directory entries
 				memcpy((void*)segmentOrig,(void*)segmentStart,segmentLength);
 				puts("Path Segment:");
 				puts(segmentOrig);
@@ -126,94 +127,49 @@ FATFile* FAT_FindFile(FATVolume* vol, char* path, UInt16 pathLen)
 					zfree(segmentOrig);
 					return null;
 				}
+				puts("Finding entry in directory.\r\n");
 				
-				// Print out the 11-byte form of the name
-				puts("Finding entry in directory:\r\n");
 				for (j = 0; j < 11; j++) printf("%c",segmentShort[j]);
 				j = 0;
 				puts("\r\n");
-				printf("entryCount: %lu\r\n",entryCount);
 				
 				// Find the entry, if possible
-				for(;;)
+				while (j < entryCount)
 				{
 					if (firstCluster)
 					{
-						UInt32 bytesRemaining;
 						puts("Using cluster chain IO.\r\n");
-						if (FAT_ClusterChainIO(vol,true,firstCluster,j * sizeof(DirEntry),(UInt8*)&(file->Entry),sizeof(DirEntry),&bytesRemaining) || bytesRemaining)
-						{
-							zfree(file);
-							zfree(segmentShort);
-							zfree(segmentOrig);
-							return null;
-						}
+						FAT_ClusterChainIO(vol,true,firstCluster,j * sizeof(DirEntry),(UInt8*)&(file->Entry),sizeof(DirEntry));
 					}
 					else
 					{
-						if (j >= entryCount)
-						{
-							zfree(file);
-							zfree(segmentShort);
-							zfree(segmentOrig);
-							return null;
-						}
 						puts("Reading partition directly.\r\n");
 						// If this is a FAT12/16 volume and we are searching
 						// the root directory, we can't use cluster chain IO
-						//printf("FirstDataSector: %u\r\nRootDirSectors: %u\r\nj: %ld\r\n",vol->FirstDataSector,vol->RootDirSectors,j);
-						InternalReadPart(vol->Partition,(((UInt32)(vol->FirstDataSector) - (UInt32)(vol->RootDirSectors)) * (UInt32)(vol->BPB_BytsPerSec)) + (j * sizeof(DirEntry)),(UInt8*)&(file->Entry),sizeof(DirEntry));
+						printf("FirstDataSector: %u\r\nRootDirSectors: %u\r\nj: %d\r\n",vol->FirstDataSector,vol->RootDirSectors,j);
+						InternalReadPart(vol->Partition,(vol->FirstDataSector - vol->RootDirSectors) * vol->BPB_BytsPerSec + j * sizeof(DirEntry),(UInt8*)&(file->Entry),sizeof(DirEntry));
+						puts("Read partition successfully.\r\n");
 					}
-					
-					puts("Inspecting file entry:\r\n");
-					for (k = 0; k < 11; k++) if (file->Entry.Name[k] >= 0x20) printf("%c",file->Entry.Name[k]);
-					puts("\r\n");
-					
-					// If the entry is valid, compare its name to the current segment
-					if ((file->Entry.Name[0] != 0xE5) && 												// Don't look at empty file entries
-						(file->Entry.Name[0] > 0x20 || file->Entry.Name[0] == 0x5) && 					// Only look at valid file names
-						((file->Entry.Attr & ATTR_LONG_NAME) != ATTR_LONG_NAME) && 						// Don't inspect long file names
-						((file->Entry.Attr & ATTR_VOLUME_ID) != ATTR_VOLUME_ID) && 						// Don't check the volume ID
-						(((file->Entry.Attr & ATTR_DIRECTORY) == ATTR_DIRECTORY) || i == pathLen - 1))	// Check only for directories until the last segment
+					if ((file->Entry.Name[0] != 0xE5) && (file->Entry.Name[0] > 0x20 || file->Entry.Name[0] == 0x5))
 					{
-						// If this entry's name matches the segment
+						puts("Inspecting file entry:\r\n");
+						for (k = 0; k < 11; k++) printf("%c",file->Entry.Name[k]);
+						puts("\r\n");
 						if (!memcmp(file->Entry.Name,segmentShort,11))
 						{
-							puts("Entry found.\r\n");
-							printf("File size: %ld\r\n",file->Entry.FileSize);
-							printf("First cluster: %ld\r\n",((UInt32)(file->Entry.FstClustLO)) | (((UInt32)(file->Entry.FstClustHI)) << 16));
-							printf("Creation date: %x Time: %x Written date: %x Time: %x\r\n",file->Entry.CrtDate,file->Entry.CrtTime,file->Entry.WriteDate,file->Entry.WriteTime);
-							
-							for (k = 0; k < 32; k++) printf("%x ",((UInt8*)(&file->Entry))[k]);
-							puts("\r\n");
-							
-							// If this is the last segment of the path, return the found file entry
+							// This is the entry we were looking for from the start
 							if (i == pathLen - 1)
 							{
 								puts("File found.\r\n");
+								printf("File size: %ld\r\n",file->Entry.FileSize);
+								printf("First cluster: %ld\r\n",(UInt32)(file->Entry.FstClustLO) & ((UInt32)(file->Entry.FstClustHI) << 16));
 								zfree(segmentShort);
 								zfree(segmentOrig);
 								return file;
 							}
-							else
-							{
-								// If the folder is empty, we can't go any farther
-								if ((!(file->Entry.FstClustLO)) && (!(file->Entry.FstClustHI)))
-								{
-									puts("Empty folder found. Invalid file name.\r\n");
-									zfree(segmentShort);
-									zfree(segmentOrig);
-									return null;
-								}
-								else
-								{
-									puts("On to the next segment...\r\n");
-									break;
-								}
-							}
+							break;
 						}
 					}
-					else puts("Skipped entry.\r\n");
 					j++;
 				}
 				zfree(segmentShort);
@@ -247,38 +203,24 @@ Bool FAT_FileExists(PartInternal* device, char* path)
 // Gets a file's (or dir's) attributes
 Int16 FAT_GetFile(FileInternal* file, char** reparse)
 {
-	FATFile* fatFile;
+	FATFile* ffile;
 	printf("FAT_GetFile(%s)\r\n",file->Name);
-	fatFile = FAT_FindFile((FATVolume*)(file->Partition->Data1),file->Name,strlen(file->Name));
-	if (file)
-	{
-		file->Data1 = fatFile;
-		file->FileLength = fatFile->Entry.FileSize;
-		file->IsDirectory = fatFile->Entry.Attr & ATTR_DIRECTORY;
-		file->Attributes = ((fatFile->Entry.Attr & ATTR_READ_ONLY) ? ReadOnly : 0) | 
-								((fatFile->Entry.Attr & ATTR_HIDDEN) ? Hidden : 0) | 
-								((fatFile->Entry.Attr & ATTR_SYSTEM) ? System : 0) | 
-								((fatFile->Entry.Attr & ATTR_ARCHIVE) ? Archive : 0);
-		return ErrorSuccess;
-	}
-	else
-	{
-		return ErrorInvalidFileName;
-	}
+	ffile = FAT_FindFile((FATVolume*)(file->Partition->Data1),file->Name,strlen(file->Name));
+	
+	if (!ffile) return ErrorNotFound;
+	
+	file->Data1 = ffile;
+	file->Attributes = ((ffile->Entry.Attr & ATTR_READ_ONLY) ? ReadOnly : 0) | 
+						((ffile->Entry.Attr & ATTR_SYSTEM) ? System : 0) |
+						((ffile->Entry.Attr & ATTR_HIDDEN) ? Hidden : 0) |
+						((ffile->Entry.Attr & ATTR_ARCHIVE) ? Archive : 0);
+	return ErrorSuccess;
 }
 
 // Opens a file for IO
 Int16 FAT_OpenFile(FileInternal* file, FileMode mode)
 {
-	FATFile* fatFile = file->Data1;
-	if (fatFile)
-	{
-		return ErrorSuccess;
-	}
-	else
-	{
-		return ErrorUnknown;
-	}
+	return ErrorSuccess;
 }
 
 // Sets file attributes

@@ -15,12 +15,12 @@ UInt32 FAT_GetEndOfCluster(FATVolume* vol)
 
 UInt32 FAT_ClusterNumToSector(FATVolume* vol, UInt32 clus)
 {
-	return ((clus - 2) * vol->SecsPerClus) + vol->FirstDataSector - 1;
+	return ((clus - 2) * vol->SecsPerClus) + vol->FirstDataSector;
 }
 
 UInt32 FAT_ClusterNumToByte(FATVolume* vol, UInt32 clus)
 {
-	return (((clus - 2) * vol->SecsPerClus) + vol->FirstDataSector - 1) * vol->BPB_BytsPerSec;
+	return (((clus - 2) * vol->SecsPerClus) + vol->FirstDataSector) * vol->BPB_BytsPerSec;
 }
 
 Int16 FAT_ClusterNumToFATIndex(FATVolume* vol, UInt32 cluster, UInt16* offset, UInt16* sectorOffset, UInt32* sector)
@@ -58,7 +58,7 @@ Int16 FAT_GetFATEntry(FATVolume* vol, UInt32 index, UInt32* entry)
 	// Load the buffer if needed
 	if (vol->FATBufferSector != sector)
 	{
-		ret = InternalReadPart(vol->Partition,sector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec * 2) : (vol->BPB_BytsPerSec));
+		ret = InternalReadPart(vol->Partition,sector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec) : (vol->BPB_BytsPerSec * 2));
 		if (ret) return ret;
 	}
 	
@@ -94,10 +94,10 @@ Int16 FAT_SetFATEntry(FATVolume* vol, UInt32 index, UInt32 entry)
 	{
 		if (vol->FATBufferDirty)
 		{
-			ret = InternalWritePart(vol->Partition,vol->FATBufferSector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec * 2) : (vol->BPB_BytsPerSec));
+			ret = InternalWritePart(vol->Partition,vol->FATBufferSector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec) : (vol->BPB_BytsPerSec << 1));
 			if (ret) return ret;
 		}
-		ret = InternalReadPart(vol->Partition,sector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec * 2) : (vol->BPB_BytsPerSec));
+		ret = InternalReadPart(vol->Partition,sector * vol->BPB_BytsPerSec,vol->FATBuffer,(vol->Type == FAT12) ? (vol->BPB_BytsPerSec) : (vol->BPB_BytsPerSec << 1));
 		if (ret) return ret;
 	}
 	
