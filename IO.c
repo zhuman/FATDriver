@@ -61,12 +61,35 @@ Int16 FAT_WriteFile(FileInternal* file, UInt64 pos, UInt8* buffer, UInt16 bufLen
 	{
 		FATFile* f = file->Data1;
 		UInt32 bytsPerClus = f->Volume->SecsPerClus * f->Volume->BPB_BytsPerSec;
-		//if (pos + bufLen > f->Entry.FileSize) return ErrorInvalidSeek;
+		
+		// If we are writing past the end of the file, allocate more sectors if necessary
 		if (pos + bufLen > f->Entry.FileSize)
 		{
-			if ((f->Entry.FileSize / bytsPerClus) > ((pos + bufLen) / bytsPerClus))
+			// If we are writing past the last sector, allocate more
+			if ((f->Entry.FileSize / bytsPerClus) < ((pos + bufLen) / bytsPerClus))
 			{
-				//SetFATEntry(f->Volume,
+				UInt32 entry = (f->Entry.FstClustHI << 16) | f->Entry.FstClustLO;
+				UInt32 i, j;
+				UInt32 clustersRequired = ((pos + bufLen) / bytsPerClus) - (f->Entry.FileSize / bytsPerClus);
+				
+				while (1)
+				{
+					UInt32 lastEntry = entry;
+					if ((ret = FAT_GetFATEntry(f->Volume,entry,&entry))) return ret;
+					if (entry >= FAT_GetEndOfCluster(f->Volume))
+					{
+						entry = lastEntry;
+						break;
+					}
+				}
+				
+				for (i = 0; i < clusterRequired; i++)
+				{
+					for (j = 0; j < f->Volume->CountOfClusters; j++)
+					{
+						
+					}
+				}
 			}
 			f->Entry.FileSize = pos + bufLen;
 		}	
